@@ -24,7 +24,9 @@
  */
 
 import type { SourceWorkbook, SourceRow, T3Row } from "../types.js";
-import { findMercadoByName, findMercadoByCityCode } from "../domain/mercados.js";
+import {
+  findMercadoByName, findMercadoByCityCode, isSubsidizedMercado,
+} from "../domain/mercados.js";
 import { CARGO_HORARIO, FRANJA_DEFAULT, TARIFA_OT } from "../domain/constants.js";
 
 export interface EstratoConfig {
@@ -86,17 +88,8 @@ function tarifaFor(level: SourceRow, estrato: number): number {
   return level.cuPlusCot;
 }
 
-/** Indica si un estrato 1/2/3 tiene una res.estr.N publicada en TODAS las 5 sub-filas. */
-function hasResEstr(levels: Record<string, SourceRow>, estrato: number): boolean {
-  if (estrato < 1 || estrato > 3) return true; // 4+ siempre habilitado
-  const field: keyof SourceRow = estrato === 1 ? "resEstr1" : estrato === 2 ? "resEstr2" : "resEstr3";
-  for (const k of ["1-100", "1-50", "1-0", "2", "3"]) {
-    const r = levels[k];
-    if (!r) return false;
-    if (!isValidResEstr(r[field] as number | undefined)) return false;
-  }
-  return true;
-}
+// (función hasResEstr eliminada — la autoridad es el catálogo
+// SUBSIDIZED_CITY_CODES en domain/mercados.ts, no el contenido del source.)
 
 interface BuildArgs {
   cityCode: number; cargoHorario: number; estrato: number;
@@ -161,10 +154,14 @@ export function generateT3(source: SourceWorkbook, opts: GenerateT3Options): T3R
     if (!r100 || !r50 || !r0 || !r2 || !r3) continue;
 
     // Determinar la lista total de estratos para ESTE mercado:
-    //   base (4..8) + 1/2/3 si hay res.estr.N
+    //   base (4..8) + 1/2/3 si está en la lista SUBSIDIZED_CITY_CODES.
+    // Los estratos 1-3 SIEMPRE se generan para los 3 mercados subsidiados,
+    // incluso si el source carece de algún resEstr (en ese caso tarifaFor
+    // hace fallback a cuPlusCot — el SUI prefiere fila incompleta que
+    // ausencia total).
     const allEstratos: EstratoConfig[] = [];
-    for (const e of [1, 2, 3]) {
-      if (hasResEstr(levels, e)) {
+    if (isSubsidizedMercado(info.cityCode)) {
+      for (const e of [1, 2, 3]) {
         allEstratos.push({ estrato: e, pctSub100: 0, pctSub50: 0, pctSub0: 0, enabled: true });
       }
     }

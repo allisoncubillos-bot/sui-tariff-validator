@@ -72,3 +72,30 @@ export function findMercadoByCityCode(code: number): MercadoInfo | undefined {
  * source. Si más adelante BIA Energy comienza a operar un nuevo mercado, se
  * agrega aquí y se corre `tests/reconcile-mercados.ts` para validar el match.
  */
+
+/**
+ * MERCADOS SUBSIDIADOS — decisión comercial de BIA Energy.
+ *
+ * Estos 3 mercados publican tarifa subsidiada para los estratos 1, 2 y 3 del
+ * Nivel 1 residencial. Para el resto de mercados, BIA cobra tarifa plena en
+ * Nivel 1 incluso a esos estratos.
+ *
+ * El generador T3 usa esta lista como SOURCE-OF-TRUTH para decidir si emite
+ * filas de estratos 1-3, INDEPENDIENTEMENTE de si el Excel visual trae las
+ * columnas Res.Estr.1/2/3 completas (a veces hay celdas vacías en el source
+ * pero la fila SIEMPRE debe ir al SUI). Si el source carece de algún resEstr,
+ * el generador cae a cuPlusCot y emite diagnóstico.
+ *
+ * Si BIA cambia su política de subsidios (deja de subsidiar uno, agrega otro,
+ * etc.), EDITAR ESTA LISTA es lo único que hay que tocar.
+ */
+export const SUBSIDIZED_CITY_CODES = new Set<number>([
+  170, // Huila
+  160, // Santander
+  561, // Valle
+]);
+
+/** Helper: ¿BIA aplica subsidio residencial (estratos 1-3) en este mercado? */
+export function isSubsidizedMercado(cityCode: number): boolean {
+  return SUBSIDIZED_CITY_CODES.has(cityCode);
+}
