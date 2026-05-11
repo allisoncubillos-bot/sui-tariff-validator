@@ -76,16 +76,22 @@ export function validateSemantic({ source, t3, t7 }: CrossCheckInput): Validatio
           ref: sr.mercado,
         });
       }
-      // Tarifa N1 100% OR sin subsidio (si %sub=0)
+      // Tarifa N1 100% OR — el valor esperado depende del estrato:
+      //  - Estrato 1/2/3 con res.estr.N publicada → comparar vs resEstrN
+      //  - Resto                                  → comparar vs cuPlusCot
+      const isValidRes = (v: number | undefined) =>
+        v != null && Number.isFinite(v) && v > 0;
       for (const tr of rows) {
-        if (tr.pctSub100 === 0) {
-          if (Math.abs(tr.tarifaN1_100 - sr.cuPlusCot) > NUMERIC_TOLERANCE * 100) {
-            warnings.push({
-              code: "TARIFA_N1_100_MISMATCH",
-              message: `${sr.mercado} estrato=${tr.estrato}: Tarifa N1 100% T3=${tr.tarifaN1_100} ≠ CU+COT source=${sr.cuPlusCot}`,
-              ref: `${sr.mercado}/estrato${tr.estrato}`,
-            });
-          }
+        let expected = sr.cuPlusCot;
+        if (tr.estrato === 1 && isValidRes(sr.resEstr1)) expected = sr.resEstr1 as number;
+        else if (tr.estrato === 2 && isValidRes(sr.resEstr2)) expected = sr.resEstr2 as number;
+        else if (tr.estrato === 3 && isValidRes(sr.resEstr3)) expected = sr.resEstr3 as number;
+        if (Math.abs(tr.tarifaN1_100 - expected) > NUMERIC_TOLERANCE * 100) {
+          warnings.push({
+            code: "TARIFA_N1_100_MISMATCH",
+            message: `${sr.mercado} estrato=${tr.estrato}: Tarifa N1 100% T3=${tr.tarifaN1_100} ≠ esperado ${expected}`,
+            ref: `${sr.mercado}/estrato${tr.estrato}`,
+          });
         }
       }
     }

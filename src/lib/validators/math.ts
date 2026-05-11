@@ -93,10 +93,11 @@ export function validateT3Consistency(rows: T3Row[]): ValidationReport {
         });
       }
     }
-    // Tarifa N1_0 ≥ N2 ≥ N3 — solo aplica si el estrato NO tiene subsidio en
-    // Nivel 1 (de lo contrario la N1 neta puede ser menor que la N2 sin subsidio
-    // y la regla deja de tener sentido como invariante de costo).
-    if (r.pctSub0 === 0 && r.tarifaN1_0 > 0 && r.tarifaN2 > 0 && r.tarifaN1_0 < r.tarifaN2 - NUMERIC_TOLERANCE) {
+    // Tarifa N1_0 ≥ N2 ≥ N3 — solo aplica si el estrato NO está subsidiado.
+    // Subsidiados (1,2,3 de Huila/Santander/Valle) publican N1 con tarifa neta
+    // menor que la N2 a precio completo — eso es físicamente correcto, no un
+    // error. También se omite si pctSub0 > 0 por la misma razón.
+    if (r.estrato >= 4 && r.pctSub0 === 0 && r.tarifaN1_0 > 0 && r.tarifaN2 > 0 && r.tarifaN1_0 < r.tarifaN2 - NUMERIC_TOLERANCE) {
       warnings.push({
         code: "T3_ORDER_LEVELS",
         message: `city=${r.cityCode}: Tarifa N1 0% (${r.tarifaN1_0}) < Tarifa N2 (${r.tarifaN2}).`,

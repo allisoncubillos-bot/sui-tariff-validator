@@ -1,32 +1,32 @@
 /**
  * Generador de filas T3 a partir de un SourceWorkbook ya parseado.
  *
- * Estrategia:
- *   - Por cada mercado, agrupamos las 5 filas (1-100, 1-50, 1-0, 2, 3) y
- *     construimos las 6 (o N) filas T3 — una por estrato/sector.
- *   - Las tarifas de Nivel 1 toman CU+COT de las filas 1-OR / 1-Comp / 1-US.
- *   - Tarifa Nivel 2 y 3 toman CU+COT de las filas 2 y 3.
- *   - Tarifa Nivel 4: 0 (BIA Energy no opera N4 según el archivo 2026-04).
- *   - Subsidios y estratos: opcionalmente vienen de un catálogo de la
- *     empresa; si no, se completan con los valores por defecto observados
- *     en el T3 provisional (0 para sectores no residenciales, etc.).
+ * ── REGLA DE NEGOCIO CLAVE ──────────────────────────────────────────────────
+ *
+ * BIA Energy publica subsidios SOLO en 3 mercados (Huila, Santander, Valle).
+ * Para esos, el reporte visual trae los valores YA SUBSIDIADOS en las
+ * columnas "Res. Estr. 1 / 2 / 3" del visual (campos `resEstr1/2/3` de
+ * SourceRow). Para los otros 17 mercados, esas celdas vienen como "-" y por
+ * tanto `resEstrN` queda `undefined`.
+ *
+ * Reglas:
+ *   - Mercado CON resEstrN  → genera filas T3 para estratos 1, 2, 3 usando
+ *                              el valor DIRECTO del source (no calcula nada).
+ *   - Mercado SIN resEstrN  → NO genera filas para estratos 1, 2, 3.
+ *   - Todos los mercados   → generan estratos 4..8 con cuPlusCot (sin
+ *                              subsidio, %sub = 0).
+ *
+ * Por qué esto importa:
+ *   La versión anterior aplicaba un 60/50/15% mecánico a `cuPlusCot` para
+ *   TODOS los mercados — producía cifras espurias como Huila estrato 1 =
+ *   316.26 cuando el valor publicado es 421.47. Era inconsistente con la
+ *   publicación oficial.
  */
 
 import type { SourceWorkbook, SourceRow, T3Row } from "../types.js";
 import { findMercadoByName, findMercadoByCityCode } from "../domain/mercados.js";
 import { CARGO_HORARIO, FRANJA_DEFAULT, TARIFA_OT } from "../domain/constants.js";
 
-/**
- * Configuración por estrato para T3. Cada estrato puede tener distintos %
- * de subsidio que se aplican a las tarifas de Nivel 1.
- *
- * Default basado en T3 2026-04 observado:
- *   - Estratos 1, 2, 3 y 4 reportan con %sub=0 (BIA no tiene subsidio en N1).
- *   - Pero la regulación permite hasta 60% para estrato 1, 50% para 2, etc.
- *
- * Si la empresa configura subsidios distintos por estrato/mercado/mes, se
- * inyecta aquí (puede venir desde Lovable como tabla editable).
- */
 export interface EstratoConfig {
   estrato: number;          // 1..6 residencial; 7+ para sectores
   pctSub100: number;        // % subsidio para nivel 1 100% OR
@@ -36,13 +36,17 @@ export interface EstratoConfig {
   enabled: boolean;
 }
 
+/**
+ * Default observado en T3 2026-04 — estratos 4..8 con %sub = 0 para
+ * TODOS los mercados. Los estratos 1, 2, 3 NO van en el default; se
+ * agregan automáticamente sólo para mercados con `resEstrN` definido.
+ */
 export const DEFAULT_ESTRATOS: EstratoConfig[] = [
-  { estrato: 1, pctSub100: 60, pctSub50: 60, pctSub0: 60, enabled: true },
-  { estrato: 2, pctSub100: 50, pctSub50: 50, pctSub0: 50, enabled: true },
-  { estrato: 3, pctSub100: 15, pctSub50: 15, pctSub0: 15, enabled: true },
-  { estrato: 4, pctSub100: 0,  pctSub50: 0,  pctSub0: 0,  enabled: true },
-  { estrato: 5, pctSub100: 0,  pctSub50: 0,  pctSub0: 0,  enabled: true },
-  { estrato: 6, pctSub100: 0,  pctSub50: 0,  pctSub0: 0,  enabled: true },
+  { estrato: 4, pctSub100: 0, pctSub50: 0, pctSub0: 0, enabled: true },
+  { estrato: 5, pctSub100: 0, pctSub50: 0, pctSub0: 0, enabled: true },
+  { estrato: 6, pctSub100: 0, pctSub50: 0, pctSub0: 0, enabled: true },
+  { estrato: 7, pctSub100: 0, pctSub50: 0, pctSub0: 0, enabled: true },
+  { estrato: 8, pctSub100: 0, pctSub50: 0, pctSub0: 0, enabled: true },
 ];
 
 export interface GenerateT3Options {
@@ -51,71 +55,47 @@ export interface GenerateT3Options {
   tarifaOT?: number;                  // por defecto: NO aplica (=2)
   cargoHorario?: number;              // por defecto: monomio (=4)
   /**
-   * Lista global de estratos a emitir POR MERCADO. Ignorada si se provee
-   * `template`. Default: estratos 1..6.
+   * Estratos NO subsidiados (4..8 por default). Los estratos subsidiados
+   * (1, 2, 3) se agregan dinámicamente y SOLO para mercados con resEstrN.
    */
   estratos?: EstratoConfig[];
   /**
-   * RECOMENDADO: T3 del mes anterior (o de la publicación previa). Cuando
-   * se proporciona, el generador toma la ESTRUCTURA (qué estratos publica
-   * cada mercado, sus % de subsidio, su diario, su tarifa OT) del template
-   * y reemplaza únicamente los VALORES tarifarios con los del SourceWorkbook.
-   *
-   * Esto evita tener que mantener manualmente DEFAULT_ESTRATOS y permite que
-   * cada mercado tenga su propia política de subsidios sin configuración.
+   * RECOMENDADO: T3 del mes anterior (o de la publicación previa). Cuando se
+   * proporciona, el generador toma la ESTRUCTURA exacta (qué estratos publica
+   * cada mercado, qué % de subsidio, qué diario, qué tarifa OT) del template
+   * y reemplaza únicamente los VALORES tarifarios con los del source —
+   * priorizando los valores de `resEstrN` cuando aplica.
    */
   template?: T3Row[];
-  /**
-   * Cuando true, las tarifas se truncan a 5 decimales en lugar de redondear.
-   * Default: false (redondeo IEEE-754 estándar).
-   */
+  /** Trunca a 5 decimales en vez de redondear. Default: false. */
   truncate5?: boolean;
 }
 
-export function generateT3(source: SourceWorkbook, opts: GenerateT3Options): T3Row[] {
-  const cargoHorario = opts.cargoHorario ?? CARGO_HORARIO.MONOMIO;
-  const tarifaOT     = opts.tarifaOT     ?? TARIFA_OT.NO;
+/* ───────────────────────────── helpers ─────────────────────────────── */
 
-  // Agrupa source por mercado×nivel para lookup rápido
-  const byMercado = new Map<string, Record<string, SourceRow>>();
-  for (const r of source.rows) {
-    if (!byMercado.has(r.mercado)) byMercado.set(r.mercado, {});
-    byMercado.get(r.mercado)![r.level] = r;
+/** Valor válido de res.estr.N: número finito > 0 (las celdas vacías/dash/formula=0 no cuentan). */
+function isValidResEstr(v: number | undefined): boolean {
+  return v != null && Number.isFinite(v) && v > 0;
+}
+
+/** Toma el valor adecuado: si el estrato 1/2/3 tiene resEstrN válido, lo usa; si no, cuPlusCot. */
+function tarifaFor(level: SourceRow, estrato: number): number {
+  if (estrato === 1 && isValidResEstr(level.resEstr1)) return level.resEstr1 as number;
+  if (estrato === 2 && isValidResEstr(level.resEstr2)) return level.resEstr2 as number;
+  if (estrato === 3 && isValidResEstr(level.resEstr3)) return level.resEstr3 as number;
+  return level.cuPlusCot;
+}
+
+/** Indica si un estrato 1/2/3 tiene una res.estr.N publicada en TODAS las 5 sub-filas. */
+function hasResEstr(levels: Record<string, SourceRow>, estrato: number): boolean {
+  if (estrato < 1 || estrato > 3) return true; // 4+ siempre habilitado
+  const field: keyof SourceRow = estrato === 1 ? "resEstr1" : estrato === 2 ? "resEstr2" : "resEstr3";
+  for (const k of ["1-100", "1-50", "1-0", "2", "3"]) {
+    const r = levels[k];
+    if (!r) return false;
+    if (!isValidResEstr(r[field] as number | undefined)) return false;
   }
-
-  // MODO A — TEMPLATE: tomamos la estructura (estratos, %sub) del template y
-  // recalculamos las tarifas con los valores del source.
-  if (opts.template && opts.template.length > 0) {
-    return generateFromTemplate(source, opts.template, byMercado, {
-      fechaPublicacion: opts.fechaPublicacion,
-      diarioPublicacion: opts.diarioPublicacion,
-      tarifaOT, cargoHorario,
-    });
-  }
-
-  // MODO B — sin template: usamos estratos uniformes para todos los mercados
-  const estratos = opts.estratos ?? DEFAULT_ESTRATOS;
-  const rows: T3Row[] = [];
-  for (const [mercado, levels] of byMercado) {
-    const info = findMercadoByName(mercado);
-    if (!info) continue;
-    const r100 = levels["1-100"]; const r50 = levels["1-50"]; const r0 = levels["1-0"];
-    const r2   = levels["2"];     const r3  = levels["3"];
-    if (!r100 || !r50 || !r0 || !r2 || !r3) continue;
-
-    for (const e of estratos) {
-      if (!e.enabled) continue;
-      rows.push(buildRow({
-        cityCode: info.cityCode, cargoHorario, estrato: e.estrato,
-        pctSub100: e.pctSub100, pctSub50: e.pctSub50, pctSub0: e.pctSub0,
-        r100, r50, r0, r2, r3, cfjm: r100.cfjm,
-        fechaPublicacion: opts.fechaPublicacion,
-        diarioPublicacion: opts.diarioPublicacion,
-        tarifaOT,
-      }));
-    }
-  }
-  return rows;
+  return true;
 }
 
 interface BuildArgs {
@@ -134,11 +114,11 @@ function buildRow(a: BuildArgs): T3Row {
     finFranja:    FRANJA_DEFAULT.fin,
     estrato: a.estrato,
     pctSub100: a.pctSub100, pctSub50: a.pctSub50, pctSub0: a.pctSub0,
-    tarifaN1_100: applySubsidy(a.r100.cuPlusCot, a.pctSub100),
-    tarifaN1_50:  applySubsidy(a.r50.cuPlusCot,  a.pctSub50),
-    tarifaN1_0:   applySubsidy(a.r0.cuPlusCot,   a.pctSub0),
-    tarifaN2: a.r2.cuPlusCot,
-    tarifaN3: a.r3.cuPlusCot,
+    tarifaN1_100: tarifaFor(a.r100, a.estrato),
+    tarifaN1_50:  tarifaFor(a.r50,  a.estrato),
+    tarifaN1_0:   tarifaFor(a.r0,   a.estrato),
+    tarifaN2: tarifaFor(a.r2, a.estrato),
+    tarifaN3: tarifaFor(a.r3, a.estrato),
     tarifaN4: 0,
     cfjm: a.cfjm,
     fechaPublicacion: a.fechaPublicacion,
@@ -146,6 +126,68 @@ function buildRow(a: BuildArgs): T3Row {
     tarifaOT: a.tarifaOT,
   };
 }
+
+/* ───────────────────────────── generadores ─────────────────────────────── */
+
+export function generateT3(source: SourceWorkbook, opts: GenerateT3Options): T3Row[] {
+  const cargoHorario = opts.cargoHorario ?? CARGO_HORARIO.MONOMIO;
+  const tarifaOT     = opts.tarifaOT     ?? TARIFA_OT.NO;
+
+  // Agrupa source por mercado×nivel
+  const byMercado = new Map<string, Record<string, SourceRow>>();
+  for (const r of source.rows) {
+    if (!byMercado.has(r.mercado)) byMercado.set(r.mercado, {});
+    byMercado.get(r.mercado)![r.level] = r;
+  }
+
+  // MODO A — TEMPLATE: la estructura sale del template del mes anterior.
+  if (opts.template && opts.template.length > 0) {
+    return generateFromTemplate(opts.template, byMercado, {
+      fechaPublicacion: opts.fechaPublicacion,
+      diarioPublicacion: opts.diarioPublicacion,
+      tarifaOT, cargoHorario,
+    });
+  }
+
+  // MODO B — sin template: estratos 4..8 para todos los mercados; +1,2,3 solo
+  // para mercados con res.estr.N publicada.
+  const baseEstratos = opts.estratos ?? DEFAULT_ESTRATOS;
+  const rows: T3Row[] = [];
+  for (const [mercado, levels] of byMercado) {
+    const info = findMercadoByName(mercado);
+    if (!info) continue;
+    const r100 = levels["1-100"]; const r50 = levels["1-50"]; const r0 = levels["1-0"];
+    const r2   = levels["2"];     const r3  = levels["3"];
+    if (!r100 || !r50 || !r0 || !r2 || !r3) continue;
+
+    // Determinar la lista total de estratos para ESTE mercado:
+    //   base (4..8) + 1/2/3 si hay res.estr.N
+    const allEstratos: EstratoConfig[] = [];
+    for (const e of [1, 2, 3]) {
+      if (hasResEstr(levels, e)) {
+        allEstratos.push({ estrato: e, pctSub100: 0, pctSub50: 0, pctSub0: 0, enabled: true });
+      }
+    }
+    for (const e of baseEstratos) {
+      if (e.enabled && e.estrato >= 4) allEstratos.push(e);
+    }
+    allEstratos.sort((a, b) => a.estrato - b.estrato);
+
+    for (const e of allEstratos) {
+      rows.push(buildRow({
+        cityCode: info.cityCode, cargoHorario, estrato: e.estrato,
+        pctSub100: e.pctSub100, pctSub50: e.pctSub50, pctSub0: e.pctSub0,
+        r100, r50, r0, r2, r3, cfjm: r100.cfjm,
+        fechaPublicacion: opts.fechaPublicacion,
+        diarioPublicacion: opts.diarioPublicacion,
+        tarifaOT,
+      }));
+    }
+  }
+  return rows;
+}
+
+/* ───────────────────────────── template mode ────────────────────────────── */
 
 interface TemplateCtx {
   fechaPublicacion: Date;
@@ -155,12 +197,11 @@ interface TemplateCtx {
 }
 
 function generateFromTemplate(
-  _source: SourceWorkbook,
   template: T3Row[],
   byMercado: Map<string, Record<string, SourceRow>>,
   ctx: TemplateCtx,
 ): T3Row[] {
-  // index source rows by cityCode
+  // index source rows por cityCode
   const byCity = new Map<number, Record<string, SourceRow>>();
   for (const [mercado, levels] of byMercado) {
     const info = findMercadoByName(mercado);
@@ -173,8 +214,7 @@ function generateFromTemplate(
     const levels = byCity.get(t.cityCode);
     const info = findMercadoByCityCode(t.cityCode);
     if (!levels || !info) {
-      // Mercado del template no presente en el source → conservamos la fila tal cual.
-      out.push(t);
+      out.push(t); // mercado del template no está en source → preservar
       continue;
     }
     const r100 = levels["1-100"]; const r50 = levels["1-50"]; const r0 = levels["1-0"];
@@ -183,34 +223,25 @@ function generateFromTemplate(
 
     out.push({
       ...t,
-      // Estructura (estrato, % subsidio, cargo, franjas, tarifa OT, diario, fecha)
-      // se mantiene del template, salvo lo que el caller fija explícitamente.
       cargoHorario: t.cargoHorario || ctx.cargoHorario,
       tarifaOT: t.tarifaOT || ctx.tarifaOT,
       fechaPublicacion: ctx.fechaPublicacion,
       diarioPublicacion: ctx.diarioPublicacion,
-      // Valores recalculados desde el source
-      tarifaN1_100: applySubsidy(r100.cuPlusCot, t.pctSub100),
-      tarifaN1_50:  applySubsidy(r50.cuPlusCot,  t.pctSub50),
-      tarifaN1_0:   applySubsidy(r0.cuPlusCot,   t.pctSub0),
-      tarifaN2: r2.cuPlusCot,
-      tarifaN3: r3.cuPlusCot,
+      // Valores recalculados — USANDO res.estr.N si el estrato es 1/2/3 y el
+      // source los expone. NUNCA aplicar % subsidio mecánico al cuPlusCot.
+      tarifaN1_100: tarifaFor(r100, t.estrato),
+      tarifaN1_50:  tarifaFor(r50,  t.estrato),
+      tarifaN1_0:   tarifaFor(r0,   t.estrato),
+      tarifaN2: tarifaFor(r2, t.estrato),
+      tarifaN3: tarifaFor(r3, t.estrato),
       tarifaN4: t.tarifaN4 ?? 0,
+      // Preservamos pctSub del template — son los % oficiales del SUI
+      // (60/50/15/0) que la empresa reporta históricamente. NO los forzamos
+      // a 0 aunque las tarifas ya estén netas, porque el SUI valida que el
+      // pctSub sea consistente con el catálogo nacional.
+      pctSub100: t.pctSub100, pctSub50: t.pctSub50, pctSub0: t.pctSub0,
       cfjm: r100.cfjm,
     });
   }
   return out;
-}
-
-/**
- * Aplica el subsidio: tarifa_estrato = CU+COT × (1 − pct/100)
- *
- * NOTA: La validación contra el T3 2026-04 muestra que el provisional
- * NO aplica subsidio (las tarifas son iguales al CU+COT y los % son 0).
- * Esa observación se confirma en el comparador. Si el catálogo trae
- * pctSub > 0, esta función calcula el valor neto.
- */
-function applySubsidy(cuPlusCot: number, pct: number): number {
-  if (!pct) return cuPlusCot;
-  return cuPlusCot * (1 - pct / 100);
 }

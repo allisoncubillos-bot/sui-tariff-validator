@@ -9,6 +9,10 @@
  *       2) El FORMATO de celda usa la máscara "0.00000".
  *     Así, abrir el archivo en Excel muestra exactamente 5 decimales y al
  *     mismo tiempo el SUI lee el valor numérico con esa precisión.
+ *
+ *   - Las strings se sanitizan (quitando saltos de línea, tabs, otros control
+ *     chars) antes de escribirlas. Esto evita que una eventual exportación a
+ *     CSV parta una fila a la mitad — bug observado en T3 con "El Nuevo\nSiglo".
  */
 
 import ExcelJS from "exceljs";
@@ -22,10 +26,6 @@ export interface WriteOptions {
   sheetName?: string;
 }
 
-/**
- * Construye el ExcelJS workbook en memoria. Reutilizado por writeXlsx (Node)
- * y writeXlsxToBuffer (browser).
- */
 function buildWorkbook<T>(
   spec: SuiColumn<T>[],
   rows: T[],
@@ -64,9 +64,7 @@ function buildWorkbook<T>(
   return wb;
 }
 
-/**
- * Escribe a disco. Solo para entornos Node (CLI, server).
- */
+/** Escribe a disco. Solo para entornos Node (CLI, server). */
 export async function writeXlsx<T>(
   filePath: string,
   spec: SuiColumn<T>[],
@@ -79,10 +77,7 @@ export async function writeXlsx<T>(
 
 /**
  * Genera el binario en memoria. Browser-friendly — el caller convierte el
- * Uint8Array a Blob para descargar:
- *   const buf = await writeXlsxToBuffer(spec, rows);
- *   const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
- *   const url = URL.createObjectURL(blob);
+ * Uint8Array a Blob para descargar.
  */
 export async function writeXlsxToBuffer<T>(
   spec: SuiColumn<T>[],
@@ -92,6 +87,30 @@ export async function writeXlsxToBuffer<T>(
   const wb = buildWorkbook(spec, rows, opts);
   const buf = await wb.xlsx.writeBuffer();
   return new Uint8Array(buf as ArrayBuffer);
+}
+
+/**
+ * Quita saltos de línea, tabs y otros chars de control (C0: U+0000..U+001F y
+ * DEL: U+007F) de cualquier string que vaya al xlsx. Colapsa también espacios
+ * duplicados.
+ *
+ * Sin esto, "El Nuevo\nSiglo" rompe la estructura cuando alguien exporta el
+ * xlsx a CSV con un parser ingenuo (que no quote campos con newlines).
+ *
+ * Implementado char-por-char en vez de regex para mantener el código fuente
+ * en ASCII puro (evitar bytes de control en el .ts).
+ */
+function sanitizeString(s: string): string {
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    if (code <= 0x1f || code === 0x7f) {
+      out += " ";
+    } else {
+      out += s.charAt(i);
+    }
+  }
+  return out.replace(/\s{2,}/g, " ").trim();
 }
 
 function coerce(raw: unknown, type: SuiColumn<any>["type"], preserve: boolean): unknown {
@@ -111,7 +130,7 @@ function coerce(raw: unknown, type: SuiColumn<any>["type"], preserve: boolean): 
       return raw instanceof Date ? raw : new Date(String(raw));
     case "time":
     case "string":
-      return String(raw);
+      return sanitizeString(String(raw));
   }
 }
 

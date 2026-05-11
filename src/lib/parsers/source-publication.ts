@@ -200,13 +200,19 @@ function extractGlobals(
       cellRef: `D${headerRow - 1}`,
     });
   }
-  // En el reporte visual, Rm,i suele estar publicado por nivel — pero el
-  // 2026-04 solo expone uno global. Para niveles 1 OR/Comp/US es el mismo;
-  // para 2 y 3 puede variar. Si los necesitamos exactos, el parser de fila
-  // los recalcula a partir de CU − (Gm+Tm+Dm+PR+Cvm).
+  // En el reporte visual, el Rm,i de la 2026-04 es GLOBAL (un único valor para
+  // todos los mercados y todos los niveles). Lo asignamos a los 5 niveles para
+  // que el parser de fila NO lo derive aritméticamente desde CU −
+  // (Gm+Tm+Dm+PR+Cvm) — la derivación introducía error de coma flotante
+  // (±0.0001) en T7 niveles 2 y 3.
+  //
+  // Si en un futuro el visual expone un Rm,i POR NIVEL en columnas separadas,
+  // este map debe extenderse leyendo de esas celdas. La republicación ya tiene
+  // Rm per-row (ver source-republication.ts) — caso distinto.
   const map: Partial<Record<LevelCode, number>> = {};
   if (rm != null) {
     map["1-100"] = rm; map["1-50"] = rm; map["1-0"] = rm;
+    map["2"]     = rm; map["3"]    = rm;
   }
   return { tmGlobal: tm, rmGlobalByLevel: map };
 }
