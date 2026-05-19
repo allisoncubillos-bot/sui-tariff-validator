@@ -161,8 +161,14 @@ export function generateT3(source: SourceWorkbook, opts: GenerateT3Options): T3R
     // ausencia total).
     const allEstratos: EstratoConfig[] = [];
     if (isSubsidizedMercado(info.cityCode)) {
+      // %Subsidio oficial SUI para los 3 mercados subsidiados de BIA Energy:
+      //   Estrato 1 → 60% / Estrato 2 → 50% / Estrato 3 → 15%
+      // El mismo porcentaje aplica a las 3 columnas (100% OR / 50% OR / 0% OR)
+      // — el %sub es del estrato, no depende del nivel de tensión.
+      const SUBSIDY_PCT_BY_ESTRATO: Record<number, number> = { 1: 60, 2: 50, 3: 15 };
       for (const e of [1, 2, 3]) {
-        allEstratos.push({ estrato: e, pctSub100: 0, pctSub50: 0, pctSub0: 0, enabled: true });
+        const pct = SUBSIDY_PCT_BY_ESTRATO[e]!;
+        allEstratos.push({ estrato: e, pctSub100: pct, pctSub50: pct, pctSub0: pct, enabled: true });
       }
     }
     for (const e of baseEstratos) {

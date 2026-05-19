@@ -24,7 +24,7 @@ export function FileInput({ label, required, file, onFile, hint }: Props) {
       {file ? (
         <span className="filename">📄 {file.name}</span>
       ) : (
-        <span className="empty">{hint ?? "Hacé clic para subir un .xlsx"}</span>
+        <span className="empty">{hint ?? "Haz clic para subir un .xlsx"}</span>
       )}
     </label>
   );

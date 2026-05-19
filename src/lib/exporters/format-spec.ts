@@ -7,7 +7,7 @@
  * se desincronicen entre sí. Si el SUI cambia un formato, se ajusta SOLO aquí.
  */
 
-import type { T3Row, T4Row, T7Row, T8Row } from "../types.js";
+import type { T3Row, T4Row, T7Row, T8Row, T9Row } from "../types.js";
 
 export type SuiColType = "int" | "decimal5" | "string" | "date" | "time";
 
@@ -74,4 +74,69 @@ export const T8_SPEC_12: SuiColumn<T8Row>[] = [
   { header: "Año Corregido", field: "anioCorregido", type: "int", width: 12 } as SuiColumn<T8Row>,
   { header: "Mes Corregido", field: "mesCorregido", type: "int", width: 12 } as SuiColumn<T8Row>,
   ...(T7_SPEC.slice(1) as unknown as SuiColumn<T8Row>[]),
+];
+
+/**
+ * T9 — Variables Costo Unitario de Prestación del Servicio CU 119 – UR.
+ * 54 columnas, una fila por mercado de comercialización.
+ *
+ * Headers exactos según el "Formato base T9.csv" provisto por el equipo de
+ * regulación. El SUI valida los nombres de columna — no modificar la cadena
+ * del header sin verificar el rechazo del validador SUI.
+ */
+export const T9_SPEC: SuiColumn<T9Row>[] = [
+  { header: "ID Mercado",        field: "idMercado",        type: "int",      width: 11 },
+  { header: "ECC",               field: "ecc",              type: "decimal5", width: 16 },
+  { header: "VECC",              field: "vecc",             type: "decimal5", width: 18 },
+  { header: "AECC",              field: "aecc",             type: "decimal5", width: 10 },
+  { header: "AVECC",             field: "avecc",            type: "decimal5", width: 10 },
+  { header: "AMC",               field: "amc",              type: "decimal5", width: 12 },
+  { header: "CB MR",             field: "cbMr",             type: "decimal5", width: 16 },
+  { header: "VCB MR",            field: "vcbMr",            type: "decimal5", width: 18 },
+  { header: "ACB MR",            field: "acbMr",            type: "decimal5", width: 10 },
+  { header: "AVCB MR",           field: "avcbMr",           type: "decimal5", width: 10 },
+  { header: "CB MNR",            field: "cbMnr",            type: "decimal5", width: 16 },
+  { header: "VCB MNR",           field: "vcbMnr",           type: "decimal5", width: 18 },
+  { header: "AGPE",              field: "agpe",             type: "decimal5", width: 12 },
+  { header: "GD",                field: "gd",               type: "decimal5", width: 10 },
+  { header: "GTr",               field: "gTr",              type: "decimal5", width: 12 },
+  { header: "CUG",               field: "cug",              type: "decimal5", width: 10 },
+  { header: "CLP",               field: "clp",              type: "decimal5", width: 10 },
+  { header: "ACLP",              field: "aclp",             type: "decimal5", width: 10 },
+  { header: "w",                 field: "w",                type: "decimal5", width: 8  },
+  { header: "PSA",               field: "psa",              type: "decimal5", width: 10 },
+  { header: "EGP",               field: "egp",              type: "decimal5", width: 10 },
+  { header: "Adm",               field: "aDm",              type: "decimal5", width: 18 },
+  { header: "VRm-1",             field: "vrMMinus1",        type: "decimal5", width: 18 },
+  { header: "i",                 field: "i",                type: "decimal5", width: 10 },
+  { header: "AJ",                field: "aj",               type: "decimal5", width: 12 },
+  { header: "alfa",              field: "alfa",             type: "decimal5", width: 10 },
+  { header: "DCR AGPE",          field: "dcrAgpe",          type: "decimal5", width: 10 },
+  { header: "ADMRE G",           field: "admreG",           type: "decimal5", width: 10 },
+  { header: "APRRE G",           field: "aprreG",           type: "decimal5", width: 10 },
+  { header: "ADR IPRSTN",        field: "adrIprstn",        type: "decimal5", width: 10 },
+  { header: "APR IPRSTN",        field: "aprIprstn",        type: "decimal5", width: 10 },
+  { header: "AREST",             field: "arest",            type: "decimal5", width: 10 },
+  { header: "CfJ",               field: "cfj",              type: "decimal5", width: 12 },
+  { header: "RCT",               field: "rct",              type: "decimal5", width: 12 },
+  { header: "RCAE",              field: "rcae",             type: "decimal5", width: 12 },
+  { header: "IFSSRI",            field: "ifssri",           type: "decimal5", width: 10 },
+  { header: "IFOES",             field: "ifoes",            type: "decimal5", width: 10 },
+  { header: "Balance Subsidios", field: "balanceSubsidios", type: "int",      width: 16 },
+  { header: "AÑO",               field: "anio",             type: "int",      width: 8  },
+  { header: "TRIM",              field: "trim",             type: "int",      width: 8  },
+  { header: "MG TRIM",           field: "mgTrim",           type: "int",      width: 8  },
+  { header: "Sub1",              field: "sub1",             type: "decimal5", width: 10 },
+  { header: "Sub2",              field: "sub2",             type: "decimal5", width: 10 },
+  { header: "N",                 field: "n",                type: "decimal5", width: 8  },
+  { header: "M",                 field: "m",                type: "decimal5", width: 8  },
+  { header: "r1",                field: "r1",               type: "decimal5", width: 8  },
+  { header: "r2",                field: "r2",               type: "decimal5", width: 8  },
+  { header: "Facturacion",       field: "facturacion",      type: "decimal5", width: 14 },
+  { header: "Actividad",         field: "actividad",        type: "int",      width: 11 },
+  { header: "%CREG",             field: "pctCreg",          type: "decimal5", width: 10 },
+  { header: "%SSPD",             field: "pctSspd",          type: "decimal5", width: 10 },
+  { header: "CREG ($)",          field: "cregPesos",        type: "decimal5", width: 14 },
+  { header: "SSPD ($)",          field: "sspdPesos",        type: "decimal5", width: 14 },
+  { header: "PUI",               field: "pui",              type: "decimal5", width: 10 },
 ];
