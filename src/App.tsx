@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { FileInput } from "./components/FileInput";
 import { ResultsPanel } from "./components/ResultsPanel";
+import { T9Panel } from "./components/T9Panel";
 import {
   runPublicationBrowser,
   runRepublicationBrowser,
@@ -8,7 +9,7 @@ import {
   type BrowserRepublicationResult,
 } from "./lib/web/api";
 
-type Mode = "publicacion" | "republicacion";
+type Mode = "publicacion" | "republicacion" | "t9";
 
 export default function App() {
   const [mode, setMode] = useState<Mode>("publicacion");
@@ -76,14 +77,16 @@ export default function App() {
     <div className="container">
       <h1>BIA Energy — Validador SUI tarifario</h1>
       <p className="subtitle">
-        Sube los Excel y obtené T3/T7 (publicación) o T4/T8 (republicación) validados, con 5 decimales y comparados contra los provisionales.
+        Sube los Excel y obtén T3/T7 (publicación) o T4/T8 (republicación) validados, con 5 decimales y comparados contra los provisionales.
       </p>
 
       <div className="tabs">
         <button className={`tab ${mode === "publicacion" ? "active" : ""}`} onClick={() => setMode("publicacion")}>Publicación</button>
         <button className={`tab ${mode === "republicacion" ? "active" : ""}`} onClick={() => setMode("republicacion")}>Republicación</button>
+        <button className={`tab ${mode === "t9" ? "active" : ""}`} onClick={() => setMode("t9")}>T9</button>
       </div>
 
+      {mode === "t9" ? <T9Panel /> : (<>
       <div className="panel">
         <h2>Datos de publicación</h2>
         <div className="grid">
@@ -207,6 +210,7 @@ export default function App() {
           </div>
         </div>
       )}
+      </>)}
     </div>
   );
 }

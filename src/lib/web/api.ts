@@ -19,21 +19,25 @@
 import { parsePublicationSource } from "../parsers/source-publication.js";
 import { parseRepublicationSource } from "../parsers/source-republication.js";
 import { parseT3, parseT7, parseT4, parseT8 } from "../parsers/format-parsers.js";
+import { parseMemoriaCalculo } from "../parsers/memoria-calculo.js";
+import { parseCantidadBolsa, parsePrecioBolsa, aggregateBolsa } from "../parsers/matrices-bolsa.js";
 import { generateT3 } from "../generators/t3.js";
 import { generateT7 } from "../generators/t7.js";
 import { generateT4, generateT8 } from "../generators/t4-t8.js";
+import { generateT9 } from "../generators/t9.js";
 import { writeXlsxToBuffer } from "../exporters/xlsx-writer.js";
 import {
   T3_SPEC, T7_SPEC,
   T4_SPEC_18, T4_SPEC_20,
   T8_SPEC_10, T8_SPEC_12,
+  T9_SPEC,
 } from "../exporters/format-spec.js";
 import { validateStructure } from "../validators/structure.js";
 import { validateSourceMath, validateT3Consistency, validateT7Math } from "../validators/math.js";
 import { compareT3, compareT7 } from "../validators/compare.js";
 import { validateSemantic } from "../validators/semantic.js";
 import type {
-  SourceWorkbook, T3Row, T4Row, T7Row, T8Row,
+  SourceWorkbook, T3Row, T4Row, T7Row, T8Row, T9Row,
   Difference, ValidationReport, ParseDiagnostic,
 } from "../types.js";
 import type { EstratoConfig } from "../generators/t3.js";
@@ -227,8 +231,100 @@ export async function runRepublicationBrowser(
   };
 }
 
+/* ───────────────────────── T9 (SUI: variables CU 119) ───────────────────────── */
+
+export interface BrowserT9Inputs {
+  memoriaFile: File | Blob;
+  precioBolsaFile: File | Blob;
+  cantidadBolsaFile: File | Blob;
+  /** Año del período de reporte (debe coincidir con el start_date de la memoria). */
+  year: number;
+  /** Mes 1..12 del período de reporte. */
+  month: number;
+  /** Contribución pagada a la CREG durante el año t ($). */
+  cregPesos: number;
+  /** Contribución pagada a la SSPD durante el año t ($). */
+  sspdPesos: number;
+  /** Si se pasa, restringe la salida a estos city_codes. */
+  cityCodes?: number[];
+}
+
+export interface BrowserT9Result {
+  rows: T9Row[];
+  diagnostics: ParseDiagnostic[];
+  t9Blob: Blob;
+  t9Filename: string;
+  /** Resumen de los dos escalares de bolsa para mostrar en la UI. */
+  bolsa: { cbMnr: number; vcbMnr: number; daysCount: number };
+  /** Período detectado en la memoria (si no coincide con year/month, se levanta diagnóstico). */
+  periodFromMemoria?: { year: number; month: number; label: string };
+}
+
+export async function runT9Browser(inputs: BrowserT9Inputs): Promise<BrowserT9Result> {
+  const diagnostics: ParseDiagnostic[] = [];
+
+  const memoria = await parseMemoriaCalculo(inputs.memoriaFile);
+  diagnostics.push(...memoria.diagnostics);
+
+  const precio   = await parsePrecioBolsa(inputs.precioBolsaFile);
+  const cantidad = await parseCantidadBolsa(inputs.cantidadBolsaFile);
+  diagnostics.push(...precio.diagnostics, ...cantidad.diagnostics);
+
+  const bolsa = aggregateBolsa(cantidad, precio);
+  diagnostics.push(...bolsa.diagnostics);
+
+  // Validar coherencia de período: la memoria es del mes m; las matrices son
+  // del mes m-1 (bolsa publicada el mes anterior). Si difiere, avisar.
+  if (memoria.period) {
+    if (memoria.period.year !== inputs.year || memoria.period.month !== inputs.month) {
+      diagnostics.push({
+        level: "warn",
+        code: "t9.periodMismatch",
+        message: `Memoria tiene período ${memoria.period.label} pero el usuario seleccionó ${inputs.year}-${String(inputs.month).padStart(2, "0")}.`,
+      });
+    }
+  }
+  const expectedBolsa = previousMonth(inputs.year, inputs.month);
+  if (cantidad.period) {
+    if (cantidad.period.year !== expectedBolsa.year || cantidad.period.month !== expectedBolsa.month) {
+      diagnostics.push({
+        level: "warn",
+        code: "t9.bolsaPeriodMismatch",
+        message: `Matriz cantidades es ${cantidad.period.label} pero se esperaba ${expectedBolsa.label} (mes m-1).`,
+      });
+    }
+  }
+
+  const gen = generateT9(memoria, bolsa, {
+    year: inputs.year,
+    month: inputs.month,
+    cregPesos: inputs.cregPesos,
+    sspdPesos: inputs.sspdPesos,
+    cityCodes: inputs.cityCodes,
+  });
+  diagnostics.push(...gen.diagnostics);
+
+  const t9Buf = await writeXlsxToBuffer(T9_SPEC, gen.rows);
+  const stamp = `${inputs.year}-${String(inputs.month).padStart(2, "0")}`;
+
+  return {
+    rows: gen.rows,
+    diagnostics,
+    t9Blob: new Blob([t9Buf as BlobPart], { type: XLSX_MIME }),
+    t9Filename: `T9_${stamp}_BIA.xlsx`,
+    bolsa: { cbMnr: bolsa.cbMnr, vcbMnr: bolsa.vcbMnr, daysCount: bolsa.daysCount },
+    periodFromMemoria: memoria.period,
+  };
+}
+
+function previousMonth(year: number, month: number): { year: number; month: number; label: string } {
+  let y = year, m = month - 1;
+  if (m === 0) { m = 12; y = year - 1; }
+  return { year: y, month: m, label: `${y}-${String(m).padStart(2, "0")}` };
+}
+
 /** Re-export de tipos para que la UI los renderice. */
 export type {
-  SourceWorkbook, T3Row, T4Row, T7Row, T8Row,
+  SourceWorkbook, T3Row, T4Row, T7Row, T8Row, T9Row,
   Difference, ValidationReport, ParseDiagnostic,
 } from "../types.js";

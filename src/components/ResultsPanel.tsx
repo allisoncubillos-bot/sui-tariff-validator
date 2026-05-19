@@ -129,7 +129,7 @@ export function ResultsPanel({ diagnostics, validations, diffs, downloads }: Pro
             </tbody>
           </table>
           {diffs.length > 200 && (
-            <div className="empty-state">+ {diffs.length - 200} diferencias adicionales — descargá el JSON desde la consola del navegador.</div>
+            <div className="empty-state">+ {diffs.length - 200} diferencias adicionales — descarga el JSON desde la consola del navegador.</div>
           )}
         </details>
       )}
