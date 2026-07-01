@@ -9,7 +9,7 @@ import {
   type BrowserPublicationResult,
   type BrowserRepublicationResult,
 } from "./lib/web/api";
-import { saveRun, buildPublicationAudit, buildRepublicationAudit } from "./lib/web/history";
+import { saveRun, uploadRunFiles, buildPublicationAudit, buildRepublicationAudit, type OutputFile } from "./lib/web/history";
 
 type Mode = "publicacion" | "republicacion" | "t9" | "historial";
 
@@ -41,12 +41,16 @@ export default function App() {
   const canPub = mode === "publicacion" && sourceFile != null && !busy;
   const canRep = mode === "republicacion" && repSourceFile != null && t3BaseFile != null && t7BaseFile != null && !busy;
 
-  /** Persiste la corrida en el backend (no bloquea el flujo si falla). */
-  async function persistRun(payload: Parameters<typeof saveRun>[0]) {
+  /** Persiste la corrida y sube los .xlsx al bucket (no bloquea el flujo si falla). */
+  async function persistRun(payload: Parameters<typeof saveRun>[0], files: OutputFile[]) {
     setSaveStatus("Guardando en historial…");
     try {
-      await saveRun(payload);
-      setSaveStatus("✔ Guardado en historial");
+      const { id } = await saveRun(payload);
+      if (files.length) {
+        setSaveStatus("Subiendo archivos al bucket…");
+        await uploadRunFiles(id, files);
+      }
+      setSaveStatus(files.length ? "✔ Guardado en historial + archivos" : "✔ Guardado en historial");
     } catch (e: any) {
       setSaveStatus(`⚠ No se pudo guardar en historial: ${e?.message ?? e}`);
     }
@@ -70,7 +74,10 @@ export default function App() {
         (window as any).__pubResult = r;
         void persistRun(buildPublicationAudit(r, {
           sourceFile, t3File, t7File, fechaPublicacion, diarioPublicacion,
-        }));
+        }), [
+          { label: "T3", filename: r.t3Filename, blob: r.t3Blob },
+          { label: "T7", filename: r.t7Filename, blob: r.t7Blob },
+        ]);
       } else if (mode === "republicacion" && repSourceFile && t3BaseFile && t7BaseFile) {
         const r = await runRepublicationBrowser({
           republicationSourceFile: repSourceFile,
@@ -86,7 +93,10 @@ export default function App() {
         void persistRun(buildRepublicationAudit(r, {
           repSourceFile, t3BaseFile, t7BaseFile, t4DraftFile, t8DraftFile,
           fechaPublicacion, diarioPublicacion,
-        }));
+        }), [
+          { label: "T4", filename: r.t4Filename, blob: r.t4Blob },
+          { label: "T8", filename: r.t8Filename, blob: r.t8Blob },
+        ]);
       }
     } catch (e: any) {
       setError(e?.message ?? String(e));

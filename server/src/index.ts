@@ -2,10 +2,14 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { runsRouter } from "./routes/runs.js";
+import { filesRouter } from "./routes/files.js";
 import { pool } from "./db.js";
+import { ensureStorage } from "./storage.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 8787;
+
+ensureStorage();
 
 const origins = (process.env.CORS_ORIGINS ?? "http://localhost:5173,http://localhost:5180")
   .split(",")
@@ -26,6 +30,7 @@ app.get("/health", async (_req, res) => {
 });
 
 app.use("/api/runs", runsRouter);
+app.use("/api/files", filesRouter);
 
 app.listen(PORT, () => {
   console.log(`[sui-validator-api] escuchando en http://localhost:${PORT}`);

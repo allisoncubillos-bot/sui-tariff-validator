@@ -46,6 +46,14 @@ export interface RunAuditPayload {
   createdBy?: string | null;
 }
 
+/** Archivo guardado en el bucket local, asociado a una corrida. */
+export interface RunFile {
+  id: string;
+  label: string | null;
+  filename: string;
+  size_bytes: number;
+}
+
 /** Resumen que devuelve el listado (sin los JSON pesados). */
 export interface RunSummary {
   id: string;
@@ -64,8 +72,16 @@ export interface RunSummary {
   diffs_count: number;
   mercados: string[];
   outputs: { label: string; filename: string }[];
+  files: RunFile[];
   app_version: string | null;
   created_by: string | null;
+}
+
+/** Un archivo generado listo para subir al bucket. */
+export interface OutputFile {
+  label: string;
+  filename: string;
+  blob: Blob;
 }
 
 /* ───────────────────────── REST ───────────────────────── */
@@ -97,6 +113,25 @@ export async function getRun(id: string): Promise<Record<string, unknown>> {
   const res = await fetch(`${API_BASE}/runs/${id}`);
   if (!res.ok) throw new Error(`getRun ${res.status}: ${await res.text()}`);
   return res.json();
+}
+
+/** Sube al bucket los .xlsx generados de una corrida. */
+export async function uploadRunFiles(runId: string, files: OutputFile[]): Promise<{ files: RunFile[] }> {
+  const form = new FormData();
+  const labels: Record<string, string> = {};
+  for (const f of files) {
+    form.append("files", f.blob, f.filename);
+    labels[f.filename] = f.label;
+  }
+  form.append("labels", JSON.stringify(labels));
+  const res = await fetch(`${API_BASE}/runs/${runId}/files`, { method: "POST", body: form });
+  if (!res.ok) throw new Error(`uploadRunFiles ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+/** URL directa para descargar un archivo del bucket (usar en <a href>). */
+export function fileDownloadUrl(fileId: string): string {
+  return `${API_BASE}/files/${fileId}`;
 }
 
 /** Comprueba que el backend esté arriba (para mostrar estado en la UI). */

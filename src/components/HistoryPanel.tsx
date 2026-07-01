@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { listRuns, getRun, pingBackend, type RunSummary, type RunMode } from "../lib/web/history";
+import { listRuns, getRun, pingBackend, fileDownloadUrl, type RunSummary, type RunMode, type RunFile } from "../lib/web/history";
 import type { Difference, ValidationReport, ParseDiagnostic } from "../lib/web/api";
 
 const MODE_LABEL: Record<RunMode, string> = {
@@ -115,7 +115,13 @@ export function HistoryPanel() {
                     <td className="num">{r.warnings_count}</td>
                     <td className="num">{r.mode === "t9" ? "—" : r.diffs_count}</td>
                     <td className="num">{r.mercados?.length ?? 0}</td>
-                    <td>{(r.outputs ?? []).map((o) => o.filename).join(", ") || "—"}</td>
+                    <td>{(r.files?.length ?? 0) > 0
+                      ? r.files.map((f) => (
+                          <a key={f.id} href={fileDownloadUrl(f.id)} className="filelink" style={{ marginRight: 8 }}>
+                            ⬇ {f.label ?? f.filename}
+                          </a>
+                        ))
+                      : (r.outputs ?? []).map((o) => o.filename).join(", ") || "—"}</td>
                     <td>
                       <button onClick={() => setOpenId(openId === r.id ? null : r.id)}>
                         {openId === r.id ? "Cerrar" : "Ver"}
@@ -151,12 +157,24 @@ function RunDetail({ id }: { id: string }) {
   const validations: ValidationReport[] = data.validations ?? [];
   const diffs: Difference[] = data.diffs ?? [];
   const inputs: { role: string; filename: string; size: number }[] = data.input_files ?? [];
+  const files: RunFile[] = data.files ?? [];
 
   return (
     <div style={{ marginTop: 16, borderTop: "1px solid var(--border, #333)", paddingTop: 16 }}>
       <h3>Detalle de la corrida</h3>
 
-      <h4>Archivos de entrada ({inputs.length})</h4>
+      <h4>Archivos generados ({files.length})</h4>
+      {files.length === 0 ? <div className="empty-state">Sin archivos en el bucket para esta corrida.</div> : (
+        <div className="actions">
+          {files.map((f) => (
+            <a key={f.id} href={fileDownloadUrl(f.id)} className="download">
+              ⬇ {f.label ?? f.filename} ({Math.round(f.size_bytes / 1024)} KB)
+            </a>
+          ))}
+        </div>
+      )}
+
+      <h4 style={{ marginTop: 16 }}>Archivos de entrada ({inputs.length})</h4>
       {inputs.length === 0 ? <div className="empty-state">—</div> : (
         <ul>
           {inputs.map((f, i) => (
