@@ -107,9 +107,20 @@ export default function App() {
 
   return (
     <div className="container">
-      <h1>BIA Energy — Validador SUI tarifario</h1>
+      <div className="appbar">
+        <div className="brand-mark">
+          <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <path d="M7 21l5-6 4 3 7-9" stroke="#06121f" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
+        <div>
+          <div className="brand-eyebrow"><b>BIA ENERGY</b> · Mercado Regulado</div>
+          <h1>Validador <span className="grad">SUI tarifario</span></h1>
+        </div>
+      </div>
       <p className="subtitle">
-        Sube los Excel y obtén T3/T7 (publicación) o T4/T8 (republicación) validados, con 5 decimales y comparados contra los provisionales.
+        Sube los Excel y obtén T3/T7 (publicación) o T4/T8 (republicación) validados, con 5 decimales y
+        comparados contra los provisionales. Cada corrida queda guardada en tu historial local con sus archivos.
       </p>
 
       <div className="tabs">
