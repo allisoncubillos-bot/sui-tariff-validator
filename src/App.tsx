@@ -2,14 +2,16 @@ import { useState } from "react";
 import { FileInput } from "./components/FileInput";
 import { ResultsPanel } from "./components/ResultsPanel";
 import { T9Panel } from "./components/T9Panel";
+import { HistoryPanel } from "./components/HistoryPanel";
 import {
   runPublicationBrowser,
   runRepublicationBrowser,
   type BrowserPublicationResult,
   type BrowserRepublicationResult,
 } from "./lib/web/api";
+import { saveRun, uploadRunFiles, buildPublicationAudit, buildRepublicationAudit, type OutputFile } from "./lib/web/history";
 
-type Mode = "publicacion" | "republicacion" | "t9";
+type Mode = "publicacion" | "republicacion" | "t9" | "historial";
 
 export default function App() {
   const [mode, setMode] = useState<Mode>("publicacion");
@@ -34,12 +36,29 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [pubResult, setPubResult] = useState<BrowserPublicationResult | null>(null);
   const [repResult, setRepResult] = useState<BrowserRepublicationResult | null>(null);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
 
   const canPub = mode === "publicacion" && sourceFile != null && !busy;
   const canRep = mode === "republicacion" && repSourceFile != null && t3BaseFile != null && t7BaseFile != null && !busy;
 
+  /** Persiste la corrida y sube los .xlsx al bucket (no bloquea el flujo si falla). */
+  async function persistRun(payload: Parameters<typeof saveRun>[0], files: OutputFile[]) {
+    setSaveStatus("Guardando en historial…");
+    try {
+      const { id } = await saveRun(payload);
+      if (files.length) {
+        setSaveStatus("Subiendo archivos al bucket…");
+        await uploadRunFiles(id, files);
+      }
+      setSaveStatus(files.length ? "✔ Guardado en historial + archivos" : "✔ Guardado en historial");
+    } catch (e: any) {
+      setSaveStatus(`⚠ No se pudo guardar en historial: ${e?.message ?? e}`);
+    }
+  }
+
   async function ejecutar() {
     setError(null);
+    setSaveStatus(null);
     setBusy(true);
     try {
       if (mode === "publicacion" && sourceFile) {
@@ -53,6 +72,12 @@ export default function App() {
         setPubResult(r);
         // Save full JSON to window for debugging power-users
         (window as any).__pubResult = r;
+        void persistRun(buildPublicationAudit(r, {
+          sourceFile, t3File, t7File, fechaPublicacion, diarioPublicacion,
+        }), [
+          { label: "T3", filename: r.t3Filename, blob: r.t3Blob },
+          { label: "T7", filename: r.t7Filename, blob: r.t7Blob },
+        ]);
       } else if (mode === "republicacion" && repSourceFile && t3BaseFile && t7BaseFile) {
         const r = await runRepublicationBrowser({
           republicationSourceFile: repSourceFile,
@@ -65,6 +90,13 @@ export default function App() {
         });
         setRepResult(r);
         (window as any).__repResult = r;
+        void persistRun(buildRepublicationAudit(r, {
+          repSourceFile, t3BaseFile, t7BaseFile, t4DraftFile, t8DraftFile,
+          fechaPublicacion, diarioPublicacion,
+        }), [
+          { label: "T4", filename: r.t4Filename, blob: r.t4Blob },
+          { label: "T8", filename: r.t8Filename, blob: r.t8Blob },
+        ]);
       }
     } catch (e: any) {
       setError(e?.message ?? String(e));
@@ -75,18 +107,30 @@ export default function App() {
 
   return (
     <div className="container">
-      <h1>BIA Energy — Validador SUI tarifario</h1>
+      <div className="appbar">
+        <div className="brand-mark">
+          <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <path d="M7 21l5-6 4 3 7-9" stroke="#06121f" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
+        <div>
+          <div className="brand-eyebrow"><b>BIA ENERGY</b> · Mercado Regulado</div>
+          <h1>Validador <span className="grad">SUI tarifario</span></h1>
+        </div>
+      </div>
       <p className="subtitle">
-        Sube los Excel y obtén T3/T7 (publicación) o T4/T8 (republicación) validados, con 5 decimales y comparados contra los provisionales.
+        Sube los Excel y obtén T3/T7 (publicación) o T4/T8 (republicación) validados, con 5 decimales y
+        comparados contra los provisionales. Cada corrida queda guardada en tu historial local con sus archivos.
       </p>
 
       <div className="tabs">
         <button className={`tab ${mode === "publicacion" ? "active" : ""}`} onClick={() => setMode("publicacion")}>Publicación</button>
         <button className={`tab ${mode === "republicacion" ? "active" : ""}`} onClick={() => setMode("republicacion")}>Republicación</button>
         <button className={`tab ${mode === "t9" ? "active" : ""}`} onClick={() => setMode("t9")}>T9</button>
+        <button className={`tab ${mode === "historial" ? "active" : ""}`} onClick={() => setMode("historial")}>Historial</button>
       </div>
 
-      {mode === "t9" ? <T9Panel /> : (<>
+      {mode === "historial" ? <HistoryPanel /> : mode === "t9" ? <T9Panel /> : (<>
       <div className="panel">
         <h2>Datos de publicación</h2>
         <div className="grid">
@@ -174,6 +218,7 @@ export default function App() {
           {busy ? "Procesando…" : mode === "publicacion" ? "Generar T3 / T7" : "Generar T4 / T8"}
         </button>
         {error && <span style={{ color: "var(--err)", alignSelf: "center" }}>❌ {error}</span>}
+        {saveStatus && <span style={{ alignSelf: "center", fontSize: 13 }}>{saveStatus}</span>}
       </div>
 
       {mode === "publicacion" && pubResult && (
