@@ -2,14 +2,16 @@ import { useState } from "react";
 import { FileInput } from "./components/FileInput";
 import { ResultsPanel } from "./components/ResultsPanel";
 import { T9Panel } from "./components/T9Panel";
+import { HistoryPanel } from "./components/HistoryPanel";
 import {
   runPublicationBrowser,
   runRepublicationBrowser,
   type BrowserPublicationResult,
   type BrowserRepublicationResult,
 } from "./lib/web/api";
+import { saveRun, buildPublicationAudit, buildRepublicationAudit } from "./lib/web/history";
 
-type Mode = "publicacion" | "republicacion" | "t9";
+type Mode = "publicacion" | "republicacion" | "t9" | "historial";
 
 export default function App() {
   const [mode, setMode] = useState<Mode>("publicacion");
@@ -34,12 +36,25 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [pubResult, setPubResult] = useState<BrowserPublicationResult | null>(null);
   const [repResult, setRepResult] = useState<BrowserRepublicationResult | null>(null);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
 
   const canPub = mode === "publicacion" && sourceFile != null && !busy;
   const canRep = mode === "republicacion" && repSourceFile != null && t3BaseFile != null && t7BaseFile != null && !busy;
 
+  /** Persiste la corrida en el backend (no bloquea el flujo si falla). */
+  async function persistRun(payload: Parameters<typeof saveRun>[0]) {
+    setSaveStatus("Guardando en historial…");
+    try {
+      await saveRun(payload);
+      setSaveStatus("✔ Guardado en historial");
+    } catch (e: any) {
+      setSaveStatus(`⚠ No se pudo guardar en historial: ${e?.message ?? e}`);
+    }
+  }
+
   async function ejecutar() {
     setError(null);
+    setSaveStatus(null);
     setBusy(true);
     try {
       if (mode === "publicacion" && sourceFile) {
@@ -53,6 +68,9 @@ export default function App() {
         setPubResult(r);
         // Save full JSON to window for debugging power-users
         (window as any).__pubResult = r;
+        void persistRun(buildPublicationAudit(r, {
+          sourceFile, t3File, t7File, fechaPublicacion, diarioPublicacion,
+        }));
       } else if (mode === "republicacion" && repSourceFile && t3BaseFile && t7BaseFile) {
         const r = await runRepublicationBrowser({
           republicationSourceFile: repSourceFile,
@@ -65,6 +83,10 @@ export default function App() {
         });
         setRepResult(r);
         (window as any).__repResult = r;
+        void persistRun(buildRepublicationAudit(r, {
+          repSourceFile, t3BaseFile, t7BaseFile, t4DraftFile, t8DraftFile,
+          fechaPublicacion, diarioPublicacion,
+        }));
       }
     } catch (e: any) {
       setError(e?.message ?? String(e));
@@ -84,9 +106,10 @@ export default function App() {
         <button className={`tab ${mode === "publicacion" ? "active" : ""}`} onClick={() => setMode("publicacion")}>Publicación</button>
         <button className={`tab ${mode === "republicacion" ? "active" : ""}`} onClick={() => setMode("republicacion")}>Republicación</button>
         <button className={`tab ${mode === "t9" ? "active" : ""}`} onClick={() => setMode("t9")}>T9</button>
+        <button className={`tab ${mode === "historial" ? "active" : ""}`} onClick={() => setMode("historial")}>Historial</button>
       </div>
 
-      {mode === "t9" ? <T9Panel /> : (<>
+      {mode === "historial" ? <HistoryPanel /> : mode === "t9" ? <T9Panel /> : (<>
       <div className="panel">
         <h2>Datos de publicación</h2>
         <div className="grid">
@@ -174,6 +197,7 @@ export default function App() {
           {busy ? "Procesando…" : mode === "publicacion" ? "Generar T3 / T7" : "Generar T4 / T8"}
         </button>
         {error && <span style={{ color: "var(--err)", alignSelf: "center" }}>❌ {error}</span>}
+        {saveStatus && <span style={{ alignSelf: "center", fontSize: 13 }}>{saveStatus}</span>}
       </div>
 
       {mode === "publicacion" && pubResult && (

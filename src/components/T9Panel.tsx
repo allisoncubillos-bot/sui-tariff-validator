@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { FileInput } from "./FileInput";
 import { runT9Browser, type BrowserT9Result } from "../lib/web/api";
+import { saveRun, buildT9Audit } from "../lib/web/history";
 import { T9_LS_PREFIX, T9_YEARLY_CONTRIBUTIONS } from "../lib/domain/t9-constants";
 
 /**
@@ -29,6 +30,7 @@ export function T9Panel() {
   const [busy,   setBusy]   = useState(false);
   const [error,  setError]  = useState<string | null>(null);
   const [result, setResult] = useState<BrowserT9Result | null>(null);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
 
   // Carga CREG/SSPD desde localStorage cuando cambia el año.
   useEffect(() => {
@@ -77,6 +79,7 @@ export function T9Panel() {
       return;
     }
     setError(null);
+    setSaveStatus(null);
     setBusy(true);
     setResult(null);
     try {
@@ -92,6 +95,13 @@ export function T9Panel() {
       });
       setResult(r);
       (window as any).__t9Result = r;
+      setSaveStatus("Guardando en historial…");
+      try {
+        await saveRun(buildT9Audit(r, { year, month, memoriaFile, precioFile, cantFile }));
+        setSaveStatus("✔ Guardado en historial");
+      } catch (se: any) {
+        setSaveStatus(`⚠ No se pudo guardar en historial: ${se?.message ?? se}`);
+      }
     } catch (e: any) {
       setError(e?.message ?? String(e));
     } finally {
@@ -193,6 +203,7 @@ export function T9Panel() {
           {busy ? "Generando…" : "Generar T9"}
         </button>
         {error && <span style={{ color: "var(--err)", alignSelf: "center" }}>❌ {error}</span>}
+        {saveStatus && <span style={{ alignSelf: "center", fontSize: 13 }}>{saveStatus}</span>}
       </div>
 
       {result && (

@@ -79,7 +79,7 @@ export async function runPublicationBrowser(
   const validations: ValidationReport[] = [];
 
   const source = await parsePublicationSource(inputs.sourceFile);
-  diagnostics.push(...source.diagnostics);
+  diagnostics.push(...(source.diagnostics ?? []));
   validations.push(validateSourceMath(source.rows));
 
   let provT3: T3Row[] | undefined;
@@ -116,7 +116,8 @@ export async function runPublicationBrowser(
 
   const t3Buf = await writeXlsxToBuffer(T3_SPEC, t3);
   const t7Buf = await writeXlsxToBuffer(T7_SPEC, t7);
-  const period = source.period;
+  // extractPeriod siempre retorna un período (default: mes actual), por eso el `!`.
+  const period = source.period!;
   const stamp = `${period.year}-${String(period.month).padStart(2, "0")}`;
 
   return {
@@ -168,7 +169,7 @@ export async function runRepublicationBrowser(
   const validations: ValidationReport[] = [];
 
   const repSrc = await parseRepublicationSource(inputs.republicationSourceFile);
-  diagnostics.push(...repSrc.diagnostics);
+  diagnostics.push(...(repSrc.diagnostics ?? []));
   validations.push(validateSourceMath(repSrc.rows));
 
   const t3Base = await parseT3(inputs.t3PublishedFile);
@@ -218,7 +219,7 @@ export async function runRepublicationBrowser(
   const t8Spec = inputs.useExtendedSpec ? T8_SPEC_12 : T8_SPEC_10;
   const t4Buf = await writeXlsxToBuffer(t4Spec, t4);
   const t8Buf = await writeXlsxToBuffer(t8Spec, t8);
-  const period = repSrc.period;
+  const period = repSrc.period!;
   const stamp = `${period.year}-${String(period.month).padStart(2, "0")}`;
 
   return {
